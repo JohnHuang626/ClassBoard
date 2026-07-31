@@ -98,6 +98,12 @@ export default function App() {
   const [showClearAllModal, setShowClearAllModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
 
+  const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
+  const [newTeacherName, setNewTeacherName] = useState('');
+  const [newTeacherSubject, setNewTeacherSubject] = useState('');
+  const [showDeleteTeacherModal, setShowDeleteTeacherModal] = useState(false);
+  const [teacherToDelete, setTeacherToDelete] = useState(null);
+
   // 🔴 建立 Firebase 即時監聽
   useEffect(() => {
     const unsubClasses = onSnapshot(collection(db, 'classes'), (snapshot) => {
@@ -333,6 +339,33 @@ export default function App() {
     
     setShowDeleteClassModal(false); setClassToDelete(null);
     showMessage('success', '🗑️ 已刪除班級');
+  };
+
+  const handleAddTeacher = async () => {
+    if (!newTeacherName) return;
+    const newId = `T${Date.now()}_${Math.floor(Math.random()*1000)}`;
+    const teacher = {
+      id: newId,
+      name: newTeacherName,
+      subject: newTeacherSubject || '無',
+      password: '1234'
+    };
+    await setDoc(doc(db, 'teachers', newId), teacher);
+    setSelectedTeacher(newId);
+    setShowAddTeacherModal(false);
+    setNewTeacherName(''); setNewTeacherSubject('');
+    showMessage('success', `✅ 已新增教師：${newTeacherName}`);
+  };
+
+  const executeDeleteTeacher = async () => {
+    if (!teacherToDelete) return;
+    await deleteDoc(doc(db, 'teachers', teacherToDelete));
+    const oldLessons = lessons.filter(l => l.teacherId === teacherToDelete);
+    const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
+    await Promise.all(deletePromises);
+    
+    setShowDeleteTeacherModal(false); setTeacherToDelete(null);
+    showMessage('success', '🗑️ 已刪除教師及其所有排課紀錄');
   };
 
   const sortedTeachers = useMemo(() => {
@@ -978,6 +1011,21 @@ export default function App() {
                         {teachers.length === 0 && <option value="">無教師資料</option>}
                         {sortedTeachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.subject})</option>)}
                       </select>
+                      
+                      {}
+                      {userRole === 'admin' && (
+                        <div className="flex items-center gap-1 ml-1">
+                          <button onClick={() => setShowAddTeacherModal(true)} className="px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm flex items-center gap-1 text-sm font-bold" title="新增教師">
+                            <Plus className="w-4 h-4" /> 新增
+                          </button>
+                          {teachers.length > 0 && (
+                            <button onClick={() => { setTeacherToDelete(selectedTeacher); setShowDeleteTeacherModal(true); }} className="px-3 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors shadow-sm flex items-center gap-1 text-sm font-bold" title="刪除當前教師">
+                              <Trash2 className="w-4 h-4" /> 刪除
+                            </button>
+                          )}
+                        </div>
+                      )}
+
                       {userRole === 'teacher' && selectedTeacher === loggedTeacherId && (
                         <span className="ml-2 text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded flex items-center gap-1"><User className="w-3 h-3"/> 我的專屬課表</span>
                       )}
@@ -1171,6 +1219,42 @@ export default function App() {
             <div className="flex justify-end gap-2">
               <button onClick={() => {setShowDeleteClassModal(false); setClassToDelete(null);}} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-200">取消</button>
               <button onClick={executeDeleteClass} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700">確認刪除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {}
+      {showAddTeacherModal && userRole === 'admin' && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 print:hidden">
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 animate-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-gray-800 mb-4">新增教師</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">教師姓名 <span className="text-red-500">*</span></label>
+                <input type="text" value={newTeacherName} onChange={e => setNewTeacherName(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="例: 李大華" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">任教科目 (選填)</label>
+                <input type="text" value={newTeacherSubject} onChange={e => setNewTeacherSubject(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="例: 國文" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button onClick={() => setShowAddTeacherModal(false)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-200">取消</button>
+              <button onClick={handleAddTeacher} disabled={!newTeacherName} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">確認新增雲端</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteTeacherModal && userRole === 'admin' && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 print:hidden">
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5">
+            <h3 className="text-lg font-bold text-red-600 mb-2">警告：確認刪除教師？</h3>
+            <p className="text-gray-600 text-sm mb-6">您即將刪除 <span className="font-bold">{teachers.find(t => t.id === teacherToDelete)?.name}</span> 老師。這會一併清空該位老師在雲端上的「所有排課紀錄」。確定嗎？</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => {setShowDeleteTeacherModal(false); setTeacherToDelete(null);}} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-200">取消</button>
+              <button onClick={executeDeleteTeacher} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700">確認刪除</button>
             </div>
           </div>
         </div>
