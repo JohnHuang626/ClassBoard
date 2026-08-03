@@ -332,13 +332,28 @@ export default function App() {
 
   const executeDeleteClass = async () => {
     if (!classToDelete) return;
-    await deleteDoc(doc(db, 'classes', classToDelete));
-    const oldLessons = lessons.filter(l => l.classId === classToDelete);
-    const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
-    await Promise.all(deletePromises);
+    const targetId = classToDelete;
     
-    setShowDeleteClassModal(false); setClassToDelete(null);
-    showMessage('success', '🗑️ 已刪除班級');
+    // 1. 先瞬間關閉視窗，讓操作感覺順暢
+    setShowDeleteClassModal(false); 
+    setClassToDelete(null);
+
+    // 2. 避免畫面下拉選單卡在已刪除的班級，自動切換到其他班級
+    if (selectedClass === targetId) {
+      const remaining = classes.filter(c => c.id !== targetId);
+      setSelectedClass(remaining.length > 0 ? remaining[0].id : '');
+    }
+
+    try {
+      // 3. 在背景安靜地執行雲端刪除
+      await deleteDoc(doc(db, 'classes', targetId));
+      const oldLessons = lessons.filter(l => l.classId === targetId);
+      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
+      await Promise.all(deletePromises);
+      showMessage('success', '🗑️ 已刪除班級');
+    } catch (e) {
+      showMessage('error', '❌ 刪除失敗：' + e.message);
+    }
   };
 
   const handleAddTeacher = async () => {
@@ -359,13 +374,28 @@ export default function App() {
 
   const executeDeleteTeacher = async () => {
     if (!teacherToDelete) return;
-    await deleteDoc(doc(db, 'teachers', teacherToDelete));
-    const oldLessons = lessons.filter(l => l.teacherId === teacherToDelete);
-    const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
-    await Promise.all(deletePromises);
+    const targetId = teacherToDelete;
     
-    setShowDeleteTeacherModal(false); setTeacherToDelete(null);
-    showMessage('success', '🗑️ 已刪除教師及其所有排課紀錄');
+    // 1. 先瞬間關閉視窗，讓操作感覺順暢
+    setShowDeleteTeacherModal(false); 
+    setTeacherToDelete(null);
+
+    // 2. 避免畫面下拉選單卡在已刪除的老師，自動切換到其他老師
+    if (selectedTeacher === targetId) {
+      const remaining = teachers.filter(t => t.id !== targetId);
+      setSelectedTeacher(remaining.length > 0 ? remaining[0].id : '');
+    }
+
+    try {
+      // 3. 在背景安靜地執行雲端刪除
+      await deleteDoc(doc(db, 'teachers', targetId));
+      const oldLessons = lessons.filter(l => l.teacherId === targetId);
+      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
+      await Promise.all(deletePromises);
+      showMessage('success', '🗑️ 已刪除教師及其所有排課紀錄');
+    } catch (e) {
+      showMessage('error', '❌ 刪除失敗：' + e.message);
+    }
   };
 
   const sortedTeachers = useMemo(() => {
