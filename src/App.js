@@ -78,7 +78,7 @@ export default function App() {
   const [newClassName, setNewClassName] = useState('');
   const [showDeleteClassModal, setShowDeleteClassModal] = useState(false);
   const [classToDelete, setClassToDelete] = useState(null);
-  const [showClearClassModal, setShowClearClassModal] = useState(false);
+  const [showDeleteAllClassesModal, setShowDeleteAllClassesModal] = useState(false);  const [showClearClassModal, setShowClearClassModal] = useState(false);
   const [showClearAllModal, setShowClearAllModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
 
@@ -87,7 +87,7 @@ export default function App() {
   const [newTeacherSubject, setNewTeacherSubject] = useState('');
   const [showDeleteTeacherModal, setShowDeleteTeacherModal] = useState(false);
   const [teacherToDelete, setTeacherToDelete] = useState(null);
-
+  const [showDeleteAllTeachersModal, setShowDeleteAllTeachersModal] = useState(false);
   useEffect(() => {
     const unsubClasses = onSnapshot(collection(db, 'classes'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => a.id.localeCompare(b.id));
@@ -330,6 +330,18 @@ export default function App() {
     }
   };
 
+  const executeDeleteAllClasses = async () => {    try {
+      const deleteClassPromises = classes.map(c => deleteDoc(doc(db, 'classes', c.id)));
+      const deleteLessonPromises = lessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
+      await Promise.all([...deleteClassPromises, ...deleteLessonPromises]);
+      setShowDeleteAllClassesModal(false);
+      setSelectedClass('');
+      showMessage('success', '🗑️ 已刪除所有班級及課表');
+    } catch (e) {
+      showMessage('error', '❌ 刪除失敗：' + e.message);
+    }
+  };
+
   const handleAddTeacher = async () => {
     if (!newTeacherName) return;
     const newId = `T${Date.now()}_${Math.floor(Math.random()*1000)}`;
@@ -363,6 +375,18 @@ export default function App() {
       const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
       await Promise.all(deletePromises);
       showMessage('success', '🗑️ 已刪除教師及其所有排課紀錄');
+    } catch (e) {
+      showMessage('error', '❌ 刪除失敗：' + e.message);
+    }
+  };
+
+  const executeDeleteAllTeachers = async () => {    try {
+      const deleteTeacherPromises = teachers.map(t => deleteDoc(doc(db, 'teachers', t.id)));
+      const deleteLessonPromises = lessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
+      await Promise.all([...deleteTeacherPromises, ...deleteLessonPromises]);
+      setShowDeleteAllTeachersModal(false);
+      setSelectedTeacher('');
+      showMessage('success', '🗑️ 已刪除所有教師及課表');
     } catch (e) {
       showMessage('error', '❌ 刪除失敗：' + e.message);
     }
@@ -956,9 +980,14 @@ export default function App() {
                             <Plus className="w-4 h-4"/> 新增
                           </button>
                           {classes.length > 0 && (
-                            <button onClick={() => { setClassToDelete(selectedClass); setShowDeleteClassModal(true); }} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-bold flex items-center gap-1">
-                              <Trash2 className="w-4 h-4"/> 刪除
-                            </button>
+                            <>
+                              <button onClick={() => { setClassToDelete(selectedClass); setShowDeleteClassModal(true); }} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-bold flex items-center gap-1">
+                                <Trash2 className="w-4 h-4"/> 刪除
+                              </button>
+                              <button onClick={() => setShowDeleteAllClassesModal(true)} className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-bold flex items-center gap-1">
+                                <Trash2 className="w-4 h-4"/> 刪除全部
+                              </button>
+                            </>
                           )}
                         </div>
                       )}
@@ -980,9 +1009,14 @@ export default function App() {
                             <Plus className="w-4 h-4"/> 新增
                           </button>
                           {teachers.length > 0 && (
-                            <button onClick={() => { setTeacherToDelete(selectedTeacher); setShowDeleteTeacherModal(true); }} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-bold flex items-center gap-1">
-                              <Trash2 className="w-4 h-4"/> 刪除
-                            </button>
+                            <>
+                              <button onClick={() => { setTeacherToDelete(selectedTeacher); setShowDeleteTeacherModal(true); }} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-bold flex items-center gap-1">
+                                <Trash2 className="w-4 h-4"/> 刪除
+                              </button>
+                              <button onClick={() => setShowDeleteAllTeachersModal(true)} className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-bold flex items-center gap-1">
+                                <Trash2 className="w-4 h-4"/> 刪除全部
+                              </button>
+                            </>
                           )}
                         </div>
                       )}
@@ -1171,6 +1205,19 @@ export default function App() {
         </div>
       )}
 
+      {showDeleteAllClassesModal && userRole === 'admin' && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 border-t-4 border-red-600">
+            <h3 className="text-lg font-bold text-red-600 mb-2">危險：刪除所有班級？</h3>
+            <p className="text-gray-600 text-sm mb-6">您即將刪除雲端資料庫中所有的班級及相關課表資料！此操作無法復原。</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowDeleteAllClassesModal(false)} className="px-4 py-2 border rounded-lg text-sm font-semibold">取消</button>
+              <button onClick={executeDeleteAllClasses} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700">確認全部刪除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddTeacherModal && userRole === 'admin' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
@@ -1201,6 +1248,19 @@ export default function App() {
             <div className="flex justify-end gap-2">
               <button onClick={() => {setShowDeleteTeacherModal(false); setTeacherToDelete(null);}} className="px-4 py-2 border rounded-lg text-sm font-semibold">取消</button>
               <button onClick={executeDeleteTeacher} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700">確認刪除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteAllTeachersModal && userRole === 'admin' && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 border-t-4 border-red-600">
+            <h3 className="text-lg font-bold text-red-600 mb-2">危險：刪除所有教師？</h3>
+            <p className="text-gray-600 text-sm mb-6">您即將刪除雲端資料庫中所有的教師資料及相關課表！此操作無法復原。</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowDeleteAllTeachersModal(false)} className="px-4 py-2 border rounded-lg text-sm font-semibold">取消</button>
+              <button onClick={executeDeleteAllTeachers} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700">確認全部刪除</button>
             </div>
           </div>
         </div>
