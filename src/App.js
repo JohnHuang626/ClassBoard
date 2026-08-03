@@ -31,11 +31,11 @@ const INITIAL_TEACHERS = [
 
 const DAYS = ['星期一', '星期二', '星期三', '星期四', '星期五'];
 const PERIODS = [
-  { id: 1, name: '第一節', time: '08:15 - 09:00' }, { id: 2, name: '第二節', time: '09:10 - 09:55' },
-  { id: 3, name: '第三節', time: '10:05 - 10:50' }, { id: 4, name: '第四節', time: '11:00 - 11:45' },
-  { id: 'noon', name: '午休', time: '12:00-13:20', isBreak: true },
-  { id: 5, name: '第五節', time: '13:30 - 14:15' }, { id: 6, name: '第六節', time: '14:25 - 15:10' },
-  { id: 7, name: '第七節', time: '15:20 - 16:05' }, { id: 8, name: '第八節', time: '16:15 - 17:00', isTutor: true },
+  { id: 1, name: '第一節', time: '08:25 - 09:10' }, { id: 2, name: '第二節', time: '09:20 - 10:05' },
+  { id: 3, name: '第三節', time: '10:15 - 11:00' }, { id: 4, name: '第四節', time: '11:10 - 11:55' },
+  { id: 'noon', name: '午休', time: '11:55-13:10', isBreak: true },
+  { id: 5, name: '第五節', time: '13:20 - 14:05' }, { id: 6, name: '第六節', time: '14:15 - 15:00' },
+  { id: 7, name: '第七節', time: '15:15 - 16:00' }, { id: 8, name: '第八節', time: '16:10 - 16:55', isTutor: true },
 ];
 
 export default function App() {
