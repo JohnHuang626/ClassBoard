@@ -16,8 +16,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+// 使用公用資料路徑確保重新整理後資料不會消失
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'chia-hsin-school-default';
-
 const getPublicColRef = (colName) => collection(db, 'artifacts', appId, 'public', 'data', colName);
 
 const INITIAL_CLASSES = [
