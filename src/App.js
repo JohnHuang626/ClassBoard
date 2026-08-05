@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, User, Users, BookOpen, Calendar, CheckCircle2, Edit, Plus, Trash2, AlertTriangle, X, Lock, Unlock, Key, ShieldAlert, Eraser, ArrowRightLeft, FileText, Printer, Check, Clock, Mail, Upload, Save, Database, ArrowLeft } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, getDocs } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDyqxSFKnQIbgL-PCl6BTi_IvJyDgjIRB8",
@@ -15,6 +15,10 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+
+// 使用公用資料路徑確保重新整理後資料不會消失
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'chia-hsin-school-default';
+const getPublicColRef = (colName) => collection(db, 'artifacts', appId, 'public', 'data', colName);
 
 const INITIAL_CLASSES = [
   { id: '701', name: '7年01班' }, { id: '702', name: '7年02班' }, { id: '703', name: '7年03班' }, { id: '704', name: '7年04班' },
@@ -92,32 +96,37 @@ export default function App() {
   const [showDeleteAllTeachersModal, setShowDeleteAllTeachersModal] = useState(false);
 
   useEffect(() => {
-    const unsubClasses = onSnapshot(collection(db, 'classes'), (snapshot) => {
+    const unsubClasses = onSnapshot(getPublicColRef('classes'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => a.id.localeCompare(b.id));
       setClasses(data);
       if (data.length > 0 && !selectedClass) setSelectedClass(data[0].id);
-    });
+    }, (err) => console.error("Classes error:", err));
 
-    const unsubTeachers = onSnapshot(collection(db, 'teachers'), (snapshot) => {
+    const unsubTeachers = onSnapshot(getPublicColRef('teachers'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
       setTeachers(data);
       if (data.length > 0 && !selectedLoginTeacher) setSelectedLoginTeacher(data[0].id);
       if (data.length > 0 && !selectedTeacher) setSelectedTeacher(data[0].id);
-    });
+    }, (err) => console.error("Teachers error:", err));
 
-    const unsubLessons = onSnapshot(collection(db, 'lessons'), (snapshot) => {
+    const unsubLessons = onSnapshot(getPublicColRef('lessons'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
       setLessons(data);
-    });
+    }, (err) => console.error("Lessons error:", err));
 
-    const unsubRequests = onSnapshot(collection(db, 'requests'), (snapshot) => {
+    const unsubRequests = onSnapshot(getPublicColRef('requests'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
       setRequests(data);
-    });
+    }, (err) => console.error("Requests error:", err));
 
-    setTimeout(() => setIsDataLoaded(true), 800);
+    setTimeout(() => setIsDataLoaded(true), 500);
 
-    return () => { unsubClasses(); unsubTeachers(); unsubLessons(); unsubRequests(); };
+    return () => { 
+      unsubClasses(); 
+      unsubTeachers(); 
+      unsubLessons(); 
+      unsubRequests(); 
+    };
   }, []);
 
   const showMessage = (type, message) => {
@@ -128,10 +137,10 @@ export default function App() {
   const initializeDatabase = async () => {
     showMessage('success', '🔄 正在建立預設資料庫...');
     try {
-      const batch = writeBatch(db);
-      INITIAL_CLASSES.forEach(c => batch.set(doc(db, 'classes', c.id), c));
-      INITIAL_TEACHERS.forEach(t => batch.set(doc(db, 'teachers', t.id), t));
-      await batch.commit();
+      const promises = [];
+      INITIAL_CLASSES.forEach(c => promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', c.id), c)));
+      INITIAL_TEACHERS.forEach(t => promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', t.id), t)));
+      await Promise.all(promises);
       showMessage('success', '✅ 雲端資料庫建置成功！');
     } catch (error) {
       showMessage('error', '❌ 建置失敗：' + error.message);
@@ -158,7 +167,7 @@ export default function App() {
       setAdminPassword('');
       showMessage('success', '✅ 已成功登入為管理者！');
     } else {
-      showMessage('error', '❌ 管理者密碼錯誤 (預設 admin888)');
+      showMessage('error', '❌ 管理者密碼錯誤');
     }
   };
 
@@ -178,7 +187,7 @@ export default function App() {
       showMessage('success', `👨‍🏫 歡迎登入，${teacherName} 老師！`);
       setTeacherPassword('');
     } else {
-      showMessage('error', '❌ 教師密碼錯誤 (預設 1234)');
+      showMessage('error', '❌ 教師密碼錯誤');
     }
   };
 
@@ -200,7 +209,7 @@ export default function App() {
     }
 
     try {
-      await updateDoc(doc(db, 'teachers', loggedTeacherId), { password: pwdNew });
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', loggedTeacherId), { password: pwdNew });
       setPwdMessage({ type: 'success', text: '✅ 個人密碼修改成功！視窗即將關閉...' });
       showMessage('success', '✅ 個人密碼修改成功！');
       
@@ -238,11 +247,14 @@ export default function App() {
   const saveEditing = async () => {
     showMessage('success', '🔄 正在將課表同步至雲端...');
     try {
-      const batch = writeBatch(db);
       const oldLessons = lessons.filter(l => l.classId === selectedClass);
-      oldLessons.forEach(l => batch.delete(doc(db, 'lessons', l.id)));
+      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+      await Promise.all(deletePromises);
 
+      const newLessons = [];
+      const newTeachersPromises = [];
       let currentTeachers = [...teachers]; 
+
       for (const key of Object.keys(editData)) {
         const text = (editData[key] || '').trim();
         if (!text) continue; 
@@ -266,17 +278,17 @@ export default function App() {
             const newId = `T${Math.floor(Math.random()*100000)}`;
             teacher = { id: newId, name: teacherName, subject: subject || '未知', password: '1234' };
             currentTeachers.push(teacher);
-            batch.set(doc(db, 'teachers', teacher.id), teacher);
+            newTeachersPromises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', teacher.id), teacher));
           }
 
           const lessonId = `L_${selectedClass}_${day}_${period}`;
-          batch.set(doc(db, 'lessons', lessonId), {
+          newLessons.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', lessonId), {
             id: lessonId, classId: selectedClass, teacherId: teacher.id, subject, day, period
-          });
+          }));
         }
       }
 
-      await batch.commit();
+      await Promise.all([...newTeachersPromises, ...newLessons]);
       setIsEditing(false);
       showMessage('success', `✅ 儲存成功！`);
     } catch (e) {
@@ -285,43 +297,29 @@ export default function App() {
   };
 
   const executeClearClass = async () => {
-    try {
-      const batch = writeBatch(db);
-      const oldLessons = lessons.filter(l => l.classId === selectedClass);
-      oldLessons.forEach(l => batch.delete(doc(db, 'lessons', l.id)));
-      await batch.commit();
-      setShowClearClassModal(false);
-      setIsEditing(false);
-      showMessage('success', '🧹 已清空本班課表！');
-    } catch (e) {
-      showMessage('error', '❌ 清空失敗：' + e.message);
-    }
+    const oldLessons = lessons.filter(l => l.classId === selectedClass);
+    const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+    await Promise.all(deletePromises);
+    setShowClearClassModal(false);
+    setIsEditing(false);
+    showMessage('success', '🧹 已清空本班課表！');
   };
 
   const executeClearAll = async () => {
-    try {
-      const batch = writeBatch(db);
-      lessons.forEach(l => batch.delete(doc(db, 'lessons', l.id)));
-      await batch.commit();
-      setShowClearAllModal(false);
-      setIsEditing(false);
-      showMessage('success', '🔥 已清空所有課表！');
-    } catch (e) {
-      showMessage('error', '❌ 清空失敗：' + e.message);
-    }
+    const deletePromises = lessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+    await Promise.all(deletePromises);
+    setShowClearAllModal(false);
+    setIsEditing(false);
+    showMessage('success', '🔥 已清空所有課表！');
   };
 
   const handleAddClass = async () => {
     if (!newClassId || !newClassName) return;
-    try {
-      await setDoc(doc(db, 'classes', newClassId), { id: newClassId, name: newClassName });
-      setSelectedClass(newClassId); 
-      setShowAddClassModal(false);
-      setNewClassId(''); setNewClassName('');
-      showMessage('success', `✅ 已新增班級：${newClassName}`);
-    } catch (e) {
-      showMessage('error', '❌ 新增失敗：' + e.message);
-    }
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', newClassId), { id: newClassId, name: newClassName });
+    setSelectedClass(newClassId); 
+    setShowAddClassModal(false);
+    setNewClassId(''); setNewClassName('');
+    showMessage('success', `✅ 已新增班級：${newClassName}`);
   };
 
   const executeDeleteClass = async () => {
@@ -336,11 +334,10 @@ export default function App() {
     }
 
     try {
-      const batch = writeBatch(db);
-      batch.delete(doc(db, 'classes', targetId));
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', targetId));
       const oldLessons = lessons.filter(l => l.classId === targetId);
-      oldLessons.forEach(l => batch.delete(doc(db, 'lessons', l.id)));
-      await batch.commit();
+      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+      await Promise.all(deletePromises);
       showMessage('success', '🗑️ 已刪除班級');
     } catch (e) {
       showMessage('error', '❌ 刪除失敗：' + e.message);
@@ -349,13 +346,12 @@ export default function App() {
 
   const executeDeleteAllClasses = async () => {
     try {
-      const batch = writeBatch(db);
-      classes.forEach(c => batch.delete(doc(db, 'classes', c.id)));
-      lessons.forEach(l => batch.delete(doc(db, 'lessons', l.id)));
-      await batch.commit();
+      const classPromises = classes.map(c => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', c.id)));
+      const lessonPromises = lessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+      await Promise.all([...classPromises, ...lessonPromises]);
       setShowDeleteAllClassesModal(false);
       setSelectedClass('');
-      showMessage('success', '🗑️ 已刪除所有班級及課表');
+      showMessage('success', '🗑️ 已刪除所有班級及相關課表');
     } catch (e) {
       showMessage('error', '❌ 刪除失敗：' + e.message);
     }
@@ -370,15 +366,11 @@ export default function App() {
       subject: newTeacherSubject || '無',
       password: '1234'
     };
-    try {
-      await setDoc(doc(db, 'teachers', newId), teacher);
-      setSelectedTeacher(newId);
-      setShowAddTeacherModal(false);
-      setNewTeacherName(''); setNewTeacherSubject('');
-      showMessage('success', `✅ 已新增教師：${newTeacherName}`);
-    } catch (e) {
-      showMessage('error', '❌ 新增失敗：' + e.message);
-    }
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', newId), teacher);
+    setSelectedTeacher(newId);
+    setShowAddTeacherModal(false);
+    setNewTeacherName(''); setNewTeacherSubject('');
+    showMessage('success', `✅ 已新增教師：${newTeacherName}`);
   };
 
   const executeDeleteTeacher = async () => {
@@ -393,11 +385,10 @@ export default function App() {
     }
 
     try {
-      const batch = writeBatch(db);
-      batch.delete(doc(db, 'teachers', targetId));
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', targetId));
       const oldLessons = lessons.filter(l => l.teacherId === targetId);
-      oldLessons.forEach(l => batch.delete(doc(db, 'lessons', l.id)));
-      await batch.commit();
+      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+      await Promise.all(deletePromises);
       showMessage('success', '🗑️ 已刪除教師及其所有排課紀錄');
     } catch (e) {
       showMessage('error', '❌ 刪除失敗：' + e.message);
@@ -406,13 +397,12 @@ export default function App() {
 
   const executeDeleteAllTeachers = async () => {
     try {
-      const batch = writeBatch(db);
-      teachers.forEach(t => batch.delete(doc(db, 'teachers', t.id)));
-      lessons.forEach(l => batch.delete(doc(db, 'lessons', l.id)));
-      await batch.commit();
+      const teacherPromises = teachers.map(t => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', t.id)));
+      const lessonPromises = lessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+      await Promise.all([...teacherPromises, ...lessonPromises]);
       setShowDeleteAllTeachersModal(false);
       setSelectedTeacher('');
-      showMessage('success', '🗑️ 已刪除所有教師及課表');
+      showMessage('success', '🗑️ 已刪除所有教師及相關排課紀錄');
     } catch (e) {
       showMessage('error', '❌ 刪除失敗：' + e.message);
     }
@@ -500,7 +490,7 @@ export default function App() {
       
       try {
         if (editReq) {
-          await updateDoc(doc(db, 'requests', editReq.id), {
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', editReq.id), {
             type: requestType,
             targetTeacherId: targetTeacher,
             targetLessonId: requestType === 'swap' ? targetLessonId : null,
@@ -525,7 +515,7 @@ export default function App() {
             timestamp: new Date().toISOString(),
             reason: reason
           };
-          await setDoc(doc(db, 'requests', reqId), newReq);
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', reqId), newReq);
           onClose();
           showMessage('success', '📝 申請已送出，等待教務處審核！');
         }
@@ -644,7 +634,7 @@ export default function App() {
 
     const handleAction = async (id, newStatus) => {
       try {
-        await updateDoc(doc(db, 'requests', id), { status: newStatus });
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id), { status: newStatus });
         showMessage('success', `✅ 申請狀態已更新`);
       } catch(e) {
         showMessage('error', '❌ 更新失敗：' + e.message);
@@ -658,9 +648,8 @@ export default function App() {
         return;
       }
       try {
-        const batch = writeBatch(db);
-        pendingReqs.forEach(r => batch.update(doc(db, 'requests', r.id), { status: 'approved' }));
-        await batch.commit();
+        const promises = pendingReqs.map(r => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', r.id), { status: 'approved' }));
+        await Promise.all(promises);
         showMessage('success', `✅ 已成功批次核准 ${teachers.find(t=>t.id===teacherId)?.name} 老師的所有申請！`);
       } catch(e) {
         showMessage('error', '❌ 批次核准失敗：' + e.message);
@@ -669,7 +658,7 @@ export default function App() {
 
     const handleDeleteRequest = async (id) => {
       try {
-        await deleteDoc(doc(db, 'requests', id));
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id));
         showMessage('success', '🗑️ 申請紀錄已刪除');
       } catch(e) {
         showMessage('error', '❌ 刪除失敗：' + e.message);
@@ -1181,7 +1170,7 @@ export default function App() {
                   {teachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.subject})</option>)}
                 </select>
                 <div className="flex gap-2">
-                  <input type="password" value={teacherPassword} onChange={e=>setTeacherPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleTeacherLogin()} placeholder="請輸入密碼 (預設1234)" className="flex-1 border border-gray-300 rounded-lg p-2 text-sm focus:ring-blue-500" />
+                  <input type="password" value={teacherPassword} onChange={e=>setTeacherPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleTeacherLogin()} placeholder="請輸入密碼" className="flex-1 border border-gray-300 rounded-lg p-2 text-sm focus:ring-blue-500" />
                   <button onClick={handleTeacherLogin} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-sm">登入</button>
                 </div>
               </div>
@@ -1402,12 +1391,12 @@ export default function App() {
                   
                   if (parsedLessons.length > 0) {
                      try {
-                        const batch = writeBatch(db);
-                        newClassesMap.forEach(c => batch.set(doc(db, 'classes', c.id), c));
-                        newTeachersMap.forEach(t => batch.set(doc(db, 'teachers', t.id), t));
-                        parsedLessons.forEach(l => batch.set(doc(db, 'lessons', l.id), l));
+                        const promises = [];
+                        parsedLessons.forEach(l => promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id), l)));
+                        newClassesMap.forEach(c => promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', c.id), c)));
+                        newTeachersMap.forEach(t => promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', t.id), t)));
                         
-                        await batch.commit();
+                        await Promise.all(promises);
                         setShowImportModal(false);
                         showMessage('success', `✅ 成功匯入 ${parsedLessons.length} 筆課表至雲端！`);
                      } catch(err) {
