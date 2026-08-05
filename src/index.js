@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, User, Users, BookOpen, Calendar, CheckCircle2, Edit, Plus, Trash2, AlertTriangle, X, Lock, Unlock, Key, ShieldAlert, Eraser, ArrowRightLeft, FileText, Printer, Check, Clock, Mail, Upload, Save, Database, ArrowLeft } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, getDocs } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -16,11 +15,9 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const auth = getAuth(app);
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'chia-hsin-school-default';
 
-// 公共數據的路徑輔助函式 (遵守 RULE 1: /artifacts/{appId}/public/data/{collectionName})
 const getPublicColRef = (colName) => collection(db, 'artifacts', appId, 'public', 'data', colName);
 
 const INITIAL_CLASSES = [
@@ -49,7 +46,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('schedule');
   const [viewMode, setViewMode] = useState('class'); 
   const [isDataLoaded, setIsDataLoaded] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
   
   const [classes, setClasses] = useState([]);
   const [teachers, setTeachers] = useState([]);
@@ -99,26 +95,7 @@ export default function App() {
   const [teacherToDelete, setTeacherToDelete] = useState(null);
   const [showDeleteAllTeachersModal, setShowDeleteAllTeachersModal] = useState(false);
 
-  // 遵守 RULE 3: 先進行匿名認證後再掛載監聽器
   useEffect(() => {
-    signInAnonymously(auth)
-      .then((result) => {
-        setCurrentUser(result.user);
-      })
-      .catch((err) => {
-        console.error("Auth error:", err);
-      });
-
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
-      if (user) setCurrentUser(user);
-    });
-
-    return () => unsubAuth();
-  }, []);
-
-  useEffect(() => {
-    if (!currentUser) return;
-
     const unsubClasses = onSnapshot(getPublicColRef('classes'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => a.id.localeCompare(b.id));
       setClasses(data);
@@ -142,7 +119,7 @@ export default function App() {
       setRequests(data);
     }, (err) => console.error("Requests error:", err));
 
-    setTimeout(() => setIsDataLoaded(true), 800);
+    setTimeout(() => setIsDataLoaded(true), 500);
 
     return () => { 
       unsubClasses(); 
@@ -150,7 +127,7 @@ export default function App() {
       unsubLessons(); 
       unsubRequests(); 
     };
-  }, [currentUser]);
+  }, []);
 
   const showMessage = (type, message) => {
     setImportStatus({ type, message });
@@ -158,7 +135,6 @@ export default function App() {
   };
 
   const initializeDatabase = async () => {
-    if (!currentUser) return;
     showMessage('success', '🔄 正在建立預設資料庫...');
     try {
       const promises = [];
@@ -216,7 +192,6 @@ export default function App() {
   };
 
   const handleChangePassword = async () => {
-    if (!currentUser) return;
     const teacherData = teachers.find(t => t.id === loggedTeacherId);
     const currentValidPassword = teacherData?.password || '1234';
 
@@ -270,7 +245,6 @@ export default function App() {
   };
 
   const saveEditing = async () => {
-    if (!currentUser) return;
     showMessage('success', '🔄 正在將課表同步至雲端...');
     try {
       const oldLessons = lessons.filter(l => l.classId === selectedClass);
@@ -323,7 +297,6 @@ export default function App() {
   };
 
   const executeClearClass = async () => {
-    if (!currentUser) return;
     const oldLessons = lessons.filter(l => l.classId === selectedClass);
     const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
     await Promise.all(deletePromises);
@@ -333,7 +306,6 @@ export default function App() {
   };
 
   const executeClearAll = async () => {
-    if (!currentUser) return;
     const deletePromises = lessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
     await Promise.all(deletePromises);
     setShowClearAllModal(false);
@@ -342,7 +314,7 @@ export default function App() {
   };
 
   const handleAddClass = async () => {
-    if (!currentUser || !newClassId || !newClassName) return;
+    if (!newClassId || !newClassName) return;
     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', newClassId), { id: newClassId, name: newClassName });
     setSelectedClass(newClassId); 
     setShowAddClassModal(false);
@@ -351,7 +323,7 @@ export default function App() {
   };
 
   const executeDeleteClass = async () => {
-    if (!currentUser || !classToDelete) return;
+    if (!classToDelete) return;
     const targetId = classToDelete;
     setShowDeleteClassModal(false); 
     setClassToDelete(null);
@@ -373,7 +345,6 @@ export default function App() {
   };
 
   const executeDeleteAllClasses = async () => {
-    if (!currentUser) return;
     try {
       const classPromises = classes.map(c => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', c.id)));
       const lessonPromises = lessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
@@ -387,7 +358,7 @@ export default function App() {
   };
 
   const handleAddTeacher = async () => {
-    if (!currentUser || !newTeacherName) return;
+    if (!newTeacherName) return;
     const newId = `T${Date.now()}_${Math.floor(Math.random()*1000)}`;
     const teacher = {
       id: newId,
@@ -403,7 +374,7 @@ export default function App() {
   };
 
   const executeDeleteTeacher = async () => {
-    if (!currentUser || !teacherToDelete) return;
+    if (!teacherToDelete) return;
     const targetId = teacherToDelete;
     setShowDeleteTeacherModal(false); 
     setTeacherToDelete(null);
@@ -425,7 +396,6 @@ export default function App() {
   };
 
   const executeDeleteAllTeachers = async () => {
-    if (!currentUser) return;
     try {
       const teacherPromises = teachers.map(t => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', t.id)));
       const lessonPromises = lessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
@@ -514,7 +484,6 @@ export default function App() {
     }, [targetTeacher, lessons]);
 
     const handleSubmit = async () => {
-      if (!currentUser) return;
       if (!targetDate) { showMessage('error', "請選擇發生日期"); return; }
       if (!reason) { showMessage('error', "請選擇假別或事由"); return; }
       if (requestType === 'swap' && !targetLessonId) { showMessage('error', "請選擇要與對方互調的具體課堂"); return; }
@@ -664,7 +633,6 @@ export default function App() {
     }
 
     const handleAction = async (id, newStatus) => {
-      if (!currentUser) return;
       try {
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id), { status: newStatus });
         showMessage('success', `✅ 申請狀態已更新`);
@@ -674,7 +642,6 @@ export default function App() {
     };
 
     const handleBatchApprove = async (teacherId) => {
-      if (!currentUser) return;
       const pendingReqs = requests.filter(r => r.requesterId === teacherId && r.status === 'pending');
       if (pendingReqs.length === 0) {
         showMessage('error', '該老師目前沒有待審核的申請');
@@ -690,7 +657,6 @@ export default function App() {
     };
 
     const handleDeleteRequest = async (id) => {
-      if (!currentUser) return;
       try {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id));
         showMessage('success', '🗑️ 申請紀錄已刪除');
@@ -1368,7 +1334,7 @@ export default function App() {
               accept=".csv"
               onChange={(e) => {
                 const file = e.target.files[0];
-                if (!file || !currentUser) return;
+                if (!file) return;
                 showMessage('success', '🔄 正在讀取並寫入雲端...');
                 const reader = new FileReader();
                 reader.onload = async (evt) => {
