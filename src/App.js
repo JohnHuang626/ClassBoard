@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, User, Users, BookOpen, Calendar, CheckCircle2, Edit, Plus, Trash2, AlertTriangle, X, Lock, Unlock, Key, ShieldAlert, Eraser, ArrowRightLeft, FileText, Printer, Check, Clock, Mail, Upload, Save, Database, ArrowLeft } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, getDocs, writeBatch } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDyqxSFKnQIbgL-PCl6BTi_IvJyDgjIRB8",
@@ -68,6 +68,7 @@ export default function App() {
   const [requestTargetLesson, setRequestTargetLesson] = useState(null);
   const [editRequestData, setEditRequestData] = useState(null);
   const [filterTeacherId, setFilterTeacherId] = useState(''); 
+  const [filterPrintClassId, setFilterPrintClassId] = useState('');
 
   const [importStatus, setImportStatus] = useState({ type: '', message: '' });
   
@@ -78,7 +79,8 @@ export default function App() {
   const [newClassName, setNewClassName] = useState('');
   const [showDeleteClassModal, setShowDeleteClassModal] = useState(false);
   const [classToDelete, setClassToDelete] = useState(null);
-  const [showDeleteAllClassesModal, setShowDeleteAllClassesModal] = useState(false);  const [showClearClassModal, setShowClearClassModal] = useState(false);
+  const [showDeleteAllClassesModal, setShowDeleteAllClassesModal] = useState(false);
+  const [showClearClassModal, setShowClearClassModal] = useState(false);
   const [showClearAllModal, setShowClearAllModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
 
@@ -88,6 +90,7 @@ export default function App() {
   const [showDeleteTeacherModal, setShowDeleteTeacherModal] = useState(false);
   const [teacherToDelete, setTeacherToDelete] = useState(null);
   const [showDeleteAllTeachersModal, setShowDeleteAllTeachersModal] = useState(false);
+
   useEffect(() => {
     const unsubClasses = onSnapshot(collection(db, 'classes'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => a.id.localeCompare(b.id));
@@ -112,7 +115,7 @@ export default function App() {
       setRequests(data);
     });
 
-    setTimeout(() => setIsDataLoaded(true), 1000);
+    setTimeout(() => setIsDataLoaded(true), 800);
 
     return () => { unsubClasses(); unsubTeachers(); unsubLessons(); unsubRequests(); };
   }, []);
@@ -138,11 +141,13 @@ export default function App() {
   const jumpToTeacher = (teacherId) => {
     setSelectedTeacher(teacherId);
     setViewMode('teacher');
+    setActiveTab('schedule');
   };
 
   const jumpToClass = (classId) => {
     setSelectedClass(classId);
     setViewMode('class');
+    setActiveTab('schedule');
   };
 
   const handleAdminLogin = () => {
@@ -234,16 +239,14 @@ export default function App() {
     showMessage('success', '🔄 正在將課表同步至雲端...');
     try {
       const oldLessons = lessons.filter(l => l.classId === selectedClass);
-      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
-      await Promise.all(deletePromises);
+      for (const l of oldLessons) {
+        await deleteDoc(doc(db, 'lessons', l.id));
+      }
 
-      const newLessons = [];
-      const newTeachersPromises = [];
       let currentTeachers = [...teachers]; 
-
-      Object.keys(editData).forEach(key => {
+      for (const key of Object.keys(editData)) {
         const text = (editData[key] || '').trim();
-        if (!text) return; 
+        if (!text) continue; 
 
         const [dayStr, periodStr] = key.split('_');
         const day = parseInt(dayStr);
@@ -264,17 +267,16 @@ export default function App() {
             const newId = `T${Math.floor(Math.random()*100000)}`;
             teacher = { id: newId, name: teacherName, subject: subject || '未知', password: '1234' };
             currentTeachers.push(teacher);
-            newTeachersPromises.push(setDoc(doc(db, 'teachers', teacher.id), teacher));
+            await setDoc(doc(db, 'teachers', teacher.id), teacher);
           }
 
-          const lessonId = `L${Date.now()}_${Math.floor(Math.random()*1000)}`;
-          newLessons.push(setDoc(doc(db, 'lessons', lessonId), {
+          const lessonId = `L_${selectedClass}_${day}_${period}`;
+          await setDoc(doc(db, 'lessons', lessonId), {
             id: lessonId, classId: selectedClass, teacherId: teacher.id, subject, day, period
-          }));
+          });
         }
-      });
+      }
 
-      await Promise.all([...newTeachersPromises, ...newLessons]);
       setIsEditing(false);
       showMessage('success', `✅ 儲存成功！`);
     } catch (e) {
@@ -284,16 +286,18 @@ export default function App() {
 
   const executeClearClass = async () => {
     const oldLessons = lessons.filter(l => l.classId === selectedClass);
-    const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
-    await Promise.all(deletePromises);
+    for (const l of oldLessons) {
+      await deleteDoc(doc(db, 'lessons', l.id));
+    }
     setShowClearClassModal(false);
     setIsEditing(false);
     showMessage('success', '🧹 已清空本班課表！');
   };
 
   const executeClearAll = async () => {
-    const deletePromises = lessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
-    await Promise.all(deletePromises);
+    for (const l of lessons) {
+      await deleteDoc(doc(db, 'lessons', l.id));
+    }
     setShowClearAllModal(false);
     setIsEditing(false);
     showMessage('success', '🔥 已清空所有課表！');
@@ -322,18 +326,23 @@ export default function App() {
     try {
       await deleteDoc(doc(db, 'classes', targetId));
       const oldLessons = lessons.filter(l => l.classId === targetId);
-      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
-      await Promise.all(deletePromises);
+      for (const l of oldLessons) {
+        await deleteDoc(doc(db, 'lessons', l.id));
+      }
       showMessage('success', '🗑️ 已刪除班級');
     } catch (e) {
       showMessage('error', '❌ 刪除失敗：' + e.message);
     }
   };
 
-  const executeDeleteAllClasses = async () => {    try {
-      const deleteClassPromises = classes.map(c => deleteDoc(doc(db, 'classes', c.id)));
-      const deleteLessonPromises = lessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
-      await Promise.all([...deleteClassPromises, ...deleteLessonPromises]);
+  const executeDeleteAllClasses = async () => {
+    try {
+      for (const c of classes) {
+        await deleteDoc(doc(db, 'classes', c.id));
+      }
+      for (const l of lessons) {
+        await deleteDoc(doc(db, 'lessons', l.id));
+      }
       setShowDeleteAllClassesModal(false);
       setSelectedClass('');
       showMessage('success', '🗑️ 已刪除所有班級及課表');
@@ -372,18 +381,23 @@ export default function App() {
     try {
       await deleteDoc(doc(db, 'teachers', targetId));
       const oldLessons = lessons.filter(l => l.teacherId === targetId);
-      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
-      await Promise.all(deletePromises);
+      for (const l of oldLessons) {
+        await deleteDoc(doc(db, 'lessons', l.id));
+      }
       showMessage('success', '🗑️ 已刪除教師及其所有排課紀錄');
     } catch (e) {
       showMessage('error', '❌ 刪除失敗：' + e.message);
     }
   };
 
-  const executeDeleteAllTeachers = async () => {    try {
-      const deleteTeacherPromises = teachers.map(t => deleteDoc(doc(db, 'teachers', t.id)));
-      const deleteLessonPromises = lessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
-      await Promise.all([...deleteTeacherPromises, ...deleteLessonPromises]);
+  const executeDeleteAllTeachers = async () => {
+    try {
+      for (const t of teachers) {
+        await deleteDoc(doc(db, 'teachers', t.id));
+      }
+      for (const l of lessons) {
+        await deleteDoc(doc(db, 'lessons', l.id));
+      }
       setShowDeleteAllTeachersModal(false);
       setSelectedTeacher('');
       showMessage('success', '🗑️ 已刪除所有教師及課表');
@@ -452,7 +466,15 @@ export default function App() {
     const [targetDate, setTargetDate] = useState(editReq ? editReq.targetDate : new Date().toISOString().split('T')[0]); 
     const targetClass = classes.find(c => c.id === lesson.classId) || { name: lesson.classId };
 
+    const requesterTeacherObj = teachers.find(t => t.id === loggedTeacherId);
     const allOtherTeachers = teachers.filter(t => t.id !== loggedTeacherId);
+
+    const prioritizedTeachers = useMemo(() => {
+      if (requestType !== 'sub') return allOtherTeachers;
+      const sameSubject = allOtherTeachers.filter(t => t.subject === requesterTeacherObj?.subject);
+      const otherTeachers = allOtherTeachers.filter(t => t.subject !== requesterTeacherObj?.subject);
+      return [...sameSubject, ...otherTeachers];
+    }, [allOtherTeachers, requestType, requesterTeacherObj]);
 
     const targetTeacherLessons = useMemo(() => {
       if (!targetTeacher) return [];
@@ -531,11 +553,13 @@ export default function App() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">選擇代課老師</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">選擇代課老師 (已優先排列同科目)</label>
                   <select value={targetTeacher} onChange={e => setTargetTeacher(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm bg-white font-medium focus:ring-blue-500">
                     <option value="">-- 請選擇代課老師 --</option>
-                    {allOtherTeachers.map(t => (
-                      <option key={t.id} value={t.id}>{t.name} ({t.subject})</option>
+                    {prioritizedTeachers.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.subject}) {t.subject === requesterTeacherObj?.subject ? ' ⭐[同科目]' : ''}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -599,6 +623,13 @@ export default function App() {
       displayRequests = displayRequests.filter(r => r.requesterId === filterTeacherId || r.targetTeacherId === filterTeacherId);
     }
 
+    if (filterPrintClassId) {
+      displayRequests = displayRequests.filter(r => {
+        const lesson = lessons.find(l => l.id === r.lessonId);
+        return lesson && lesson.classId === filterPrintClassId;
+      });
+    }
+
     const handleAction = async (id, newStatus) => {
       try {
         await updateDoc(doc(db, 'requests', id), { status: newStatus });
@@ -615,8 +646,9 @@ export default function App() {
         return;
       }
       try {
-        const promises = pendingReqs.map(r => updateDoc(doc(db, 'requests', r.id), { status: 'approved' }));
-        await Promise.all(promises);
+        for (const r of pendingReqs) {
+          await updateDoc(doc(db, 'requests', r.id), { status: 'approved' });
+        }
         showMessage('success', `✅ 已成功批次核准 ${teachers.find(t=>t.id===teacherId)?.name} 老師的所有申請！`);
       } catch(e) {
         showMessage('error', '❌ 批次核准失敗：' + e.message);
@@ -633,13 +665,16 @@ export default function App() {
     };
 
     const selectedTeacherObj = teachers.find(t => t.id === filterTeacherId);
+    const selectedPrintClassObj = classes.find(c => c.id === filterPrintClassId);
     const pendingCount = filterTeacherId ? requests.filter(r => r.requesterId === filterTeacherId && r.status === 'pending').length : 0;
 
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="hidden print:block text-center py-6 border-b-2 border-black mb-4">
           <h1 className="text-2xl font-bold">嘉義縣立嘉新國民中學 調代課審核總表</h1>
-          {selectedTeacherObj ? (
+          {selectedPrintClassObj ? (
+            <h2 className="text-lg font-bold mt-2">班級：{selectedPrintClassObj.name} 專屬調代課通知表</h2>
+          ) : selectedTeacherObj ? (
             <h2 className="text-lg font-bold mt-2">教師：{selectedTeacherObj.name} ({selectedTeacherObj.subject})</h2>
           ) : (
             <h2 className="text-lg font-bold mt-2">全校總表</h2>
@@ -653,10 +688,19 @@ export default function App() {
               <FileText className="w-5 h-5 text-blue-600"/> 
               {userRole === 'admin' ? '全校調代課審核與紀錄中心' : '我的調代課申請紀錄'}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">可透過下方篩選檢視特定教師之申請，並進行批次核准或寄送總表</p>
+            <p className="text-xs text-slate-500 mt-0.5">可透過下方篩選檢視特定教師或班級之申請，並進行列印或寄送</p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            <select 
+               value={filterPrintClassId} 
+               onChange={(e) => setFilterPrintClassId(e.target.value)} 
+               className="bg-white border border-gray-300 text-sm rounded-lg px-3 py-2 focus:ring-blue-500 font-medium shadow-xs"
+            >
+               <option value="">-- 全部班級 (列印篩選) --</option>
+               {classes.map(c => <option key={c.id} value={c.id}>列印班級：{c.name}</option>)}
+            </select>
+
             <select 
                value={filterTeacherId} 
                onChange={(e) => setFilterTeacherId(e.target.value)} 
@@ -701,7 +745,7 @@ export default function App() {
         
         <div className="overflow-x-auto p-4">
           {displayRequests.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 font-medium">目前沒有任何申請紀錄。</div>
+            <div className="text-center py-12 text-slate-400 font-medium">目前沒有符合條件的申請紀錄。</div>
           ) : (
             <table className="w-full text-sm text-left border-collapse">
               <thead>
@@ -857,7 +901,8 @@ export default function App() {
                                     e.stopPropagation(); 
                                     jumpToClass(lesson.classId); 
                                   }} 
-                                  className="font-bold text-blue-900 text-sm mb-1 hover:underline hover:text-blue-700"
+                                  className="font-bold text-blue-900 text-sm mb-1 hover:underline hover:text-blue-700 cursor-pointer"
+                                  title="點擊跳轉至該班級課表"
                                 >
                                   {className}
                                 </button>
@@ -1331,7 +1376,7 @@ export default function App() {
 
                     const day = parseInt(dStr);
                     const period = isNaN(parseInt(pStr)) ? pStr : parseInt(pStr);
-                    const lessonId = `IMP_${Date.now()}_${i}`;
+                    const lessonId = `IMP_${cId}_${day}_${period}`;
                     
                     parsedLessons.push({
                       id: lessonId,
@@ -1345,12 +1390,16 @@ export default function App() {
                   
                   if (parsedLessons.length > 0) {
                      try {
-                        const promises = [];
-                        parsedLessons.forEach(l => promises.push(setDoc(doc(db, 'lessons', l.id), l)));
-                        newClassesMap.forEach(c => promises.push(setDoc(doc(db, 'classes', c.id), c)));
-                        newTeachersMap.forEach(t => promises.push(setDoc(doc(db, 'teachers', t.id), t)));
+                        for (const c of newClassesMap.values()) {
+                          await setDoc(doc(db, 'classes', c.id), c);
+                        }
+                        for (const t of newTeachersMap.values()) {
+                          await setDoc(doc(db, 'teachers', t.id), t);
+                        }
+                        for (const l of parsedLessons) {
+                          await setDoc(doc(db, 'lessons', l.id), l);
+                        }
                         
-                        await Promise.all(promises);
                         setShowImportModal(false);
                         showMessage('success', `✅ 成功匯入 ${parsedLessons.length} 筆課表至雲端！`);
                      } catch(err) {
