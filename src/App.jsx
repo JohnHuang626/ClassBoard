@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, User, Users, BookOpen, Calendar, CheckCircle2, Edit, Plus, Trash2, AlertTriangle, X, Lock, Unlock, Key, ShieldAlert, Eraser, ArrowRightLeft, FileText, Printer, Check, Clock, Mail, Upload, Save, Database, ArrowLeft } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDyqxSFKnQIbgL-PCl6BTi_IvJyDgjIRB8",
@@ -15,10 +15,6 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-
-// 使用公用資料路徑確保重新整理後資料不會消失
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'chia-hsin-school-default';
-const getPublicColRef = (colName) => collection(db, 'artifacts', appId, 'public', 'data', colName);
 
 const INITIAL_CLASSES = [
   { id: '701', name: '7年01班' }, { id: '702', name: '7年02班' }, { id: '703', name: '7年03班' }, { id: '704', name: '7年04班' },
@@ -72,7 +68,6 @@ export default function App() {
   const [requestTargetLesson, setRequestTargetLesson] = useState(null);
   const [editRequestData, setEditRequestData] = useState(null);
   const [filterTeacherId, setFilterTeacherId] = useState(''); 
-  const [filterPrintClassId, setFilterPrintClassId] = useState('');
 
   const [importStatus, setImportStatus] = useState({ type: '', message: '' });
   
@@ -83,7 +78,6 @@ export default function App() {
   const [newClassName, setNewClassName] = useState('');
   const [showDeleteClassModal, setShowDeleteClassModal] = useState(false);
   const [classToDelete, setClassToDelete] = useState(null);
-  const [showDeleteAllClassesModal, setShowDeleteAllClassesModal] = useState(false);
   const [showClearClassModal, setShowClearClassModal] = useState(false);
   const [showClearAllModal, setShowClearAllModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -93,40 +87,34 @@ export default function App() {
   const [newTeacherSubject, setNewTeacherSubject] = useState('');
   const [showDeleteTeacherModal, setShowDeleteTeacherModal] = useState(false);
   const [teacherToDelete, setTeacherToDelete] = useState(null);
-  const [showDeleteAllTeachersModal, setShowDeleteAllTeachersModal] = useState(false);
 
   useEffect(() => {
-    const unsubClasses = onSnapshot(getPublicColRef('classes'), (snapshot) => {
+    const unsubClasses = onSnapshot(collection(db, 'classes'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => a.id.localeCompare(b.id));
       setClasses(data);
       if (data.length > 0 && !selectedClass) setSelectedClass(data[0].id);
-    }, (err) => console.error("Classes error:", err));
+    });
 
-    const unsubTeachers = onSnapshot(getPublicColRef('teachers'), (snapshot) => {
+    const unsubTeachers = onSnapshot(collection(db, 'teachers'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
       setTeachers(data);
       if (data.length > 0 && !selectedLoginTeacher) setSelectedLoginTeacher(data[0].id);
       if (data.length > 0 && !selectedTeacher) setSelectedTeacher(data[0].id);
-    }, (err) => console.error("Teachers error:", err));
+    });
 
-    const unsubLessons = onSnapshot(getPublicColRef('lessons'), (snapshot) => {
+    const unsubLessons = onSnapshot(collection(db, 'lessons'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
       setLessons(data);
-    }, (err) => console.error("Lessons error:", err));
+    });
 
-    const unsubRequests = onSnapshot(getPublicColRef('requests'), (snapshot) => {
+    const unsubRequests = onSnapshot(collection(db, 'requests'), (snapshot) => {
       const data = snapshot.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
       setRequests(data);
-    }, (err) => console.error("Requests error:", err));
+    });
 
-    setTimeout(() => setIsDataLoaded(true), 500);
+    setTimeout(() => setIsDataLoaded(true), 1000);
 
-    return () => { 
-      unsubClasses(); 
-      unsubTeachers(); 
-      unsubLessons(); 
-      unsubRequests(); 
-    };
+    return () => { unsubClasses(); unsubTeachers(); unsubLessons(); unsubRequests(); };
   }, []);
 
   const showMessage = (type, message) => {
@@ -138,8 +126,8 @@ export default function App() {
     showMessage('success', '🔄 正在建立預設資料庫...');
     try {
       const promises = [];
-      INITIAL_CLASSES.forEach(c => promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', c.id), c)));
-      INITIAL_TEACHERS.forEach(t => promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', t.id), t)));
+      INITIAL_CLASSES.forEach(c => promises.push(setDoc(doc(db, 'classes', c.id), c)));
+      INITIAL_TEACHERS.forEach(t => promises.push(setDoc(doc(db, 'teachers', t.id), t)));
       await Promise.all(promises);
       showMessage('success', '✅ 雲端資料庫建置成功！');
     } catch (error) {
@@ -150,13 +138,11 @@ export default function App() {
   const jumpToTeacher = (teacherId) => {
     setSelectedTeacher(teacherId);
     setViewMode('teacher');
-    setActiveTab('schedule');
   };
 
   const jumpToClass = (classId) => {
     setSelectedClass(classId);
     setViewMode('class');
-    setActiveTab('schedule');
   };
 
   const handleAdminLogin = () => {
@@ -209,7 +195,7 @@ export default function App() {
     }
 
     try {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', loggedTeacherId), { password: pwdNew });
+      await updateDoc(doc(db, 'teachers', loggedTeacherId), { password: pwdNew });
       setPwdMessage({ type: 'success', text: '✅ 個人密碼修改成功！視窗即將關閉...' });
       showMessage('success', '✅ 個人密碼修改成功！');
       
@@ -248,16 +234,16 @@ export default function App() {
     showMessage('success', '🔄 正在將課表同步至雲端...');
     try {
       const oldLessons = lessons.filter(l => l.classId === selectedClass);
-      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
       await Promise.all(deletePromises);
 
       const newLessons = [];
       const newTeachersPromises = [];
       let currentTeachers = [...teachers]; 
 
-      for (const key of Object.keys(editData)) {
+      Object.keys(editData).forEach(key => {
         const text = (editData[key] || '').trim();
-        if (!text) continue; 
+        if (!text) return; 
 
         const [dayStr, periodStr] = key.split('_');
         const day = parseInt(dayStr);
@@ -278,15 +264,15 @@ export default function App() {
             const newId = `T${Math.floor(Math.random()*100000)}`;
             teacher = { id: newId, name: teacherName, subject: subject || '未知', password: '1234' };
             currentTeachers.push(teacher);
-            newTeachersPromises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', teacher.id), teacher));
+            newTeachersPromises.push(setDoc(doc(db, 'teachers', teacher.id), teacher));
           }
 
-          const lessonId = `L_${selectedClass}_${day}_${period}`;
-          newLessons.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', lessonId), {
+          const lessonId = `L${Date.now()}_${Math.floor(Math.random()*1000)}`;
+          newLessons.push(setDoc(doc(db, 'lessons', lessonId), {
             id: lessonId, classId: selectedClass, teacherId: teacher.id, subject, day, period
           }));
         }
-      }
+      });
 
       await Promise.all([...newTeachersPromises, ...newLessons]);
       setIsEditing(false);
@@ -298,7 +284,7 @@ export default function App() {
 
   const executeClearClass = async () => {
     const oldLessons = lessons.filter(l => l.classId === selectedClass);
-    const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+    const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
     await Promise.all(deletePromises);
     setShowClearClassModal(false);
     setIsEditing(false);
@@ -306,7 +292,7 @@ export default function App() {
   };
 
   const executeClearAll = async () => {
-    const deletePromises = lessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+    const deletePromises = lessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
     await Promise.all(deletePromises);
     setShowClearAllModal(false);
     setIsEditing(false);
@@ -315,7 +301,7 @@ export default function App() {
 
   const handleAddClass = async () => {
     if (!newClassId || !newClassName) return;
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', newClassId), { id: newClassId, name: newClassName });
+    await setDoc(doc(db, 'classes', newClassId), { id: newClassId, name: newClassName });
     setSelectedClass(newClassId); 
     setShowAddClassModal(false);
     setNewClassId(''); setNewClassName('');
@@ -334,24 +320,11 @@ export default function App() {
     }
 
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', targetId));
+      await deleteDoc(doc(db, 'classes', targetId));
       const oldLessons = lessons.filter(l => l.classId === targetId);
-      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
       await Promise.all(deletePromises);
       showMessage('success', '🗑️ 已刪除班級');
-    } catch (e) {
-      showMessage('error', '❌ 刪除失敗：' + e.message);
-    }
-  };
-
-  const executeDeleteAllClasses = async () => {
-    try {
-      const classPromises = classes.map(c => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', c.id)));
-      const lessonPromises = lessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
-      await Promise.all([...classPromises, ...lessonPromises]);
-      setShowDeleteAllClassesModal(false);
-      setSelectedClass('');
-      showMessage('success', '🗑️ 已刪除所有班級及相關課表');
     } catch (e) {
       showMessage('error', '❌ 刪除失敗：' + e.message);
     }
@@ -366,7 +339,7 @@ export default function App() {
       subject: newTeacherSubject || '無',
       password: '1234'
     };
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', newId), teacher);
+    await setDoc(doc(db, 'teachers', newId), teacher);
     setSelectedTeacher(newId);
     setShowAddTeacherModal(false);
     setNewTeacherName(''); setNewTeacherSubject('');
@@ -385,24 +358,11 @@ export default function App() {
     }
 
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', targetId));
+      await deleteDoc(doc(db, 'teachers', targetId));
       const oldLessons = lessons.filter(l => l.teacherId === targetId);
-      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
+      const deletePromises = oldLessons.map(l => deleteDoc(doc(db, 'lessons', l.id)));
       await Promise.all(deletePromises);
       showMessage('success', '🗑️ 已刪除教師及其所有排課紀錄');
-    } catch (e) {
-      showMessage('error', '❌ 刪除失敗：' + e.message);
-    }
-  };
-
-  const executeDeleteAllTeachers = async () => {
-    try {
-      const teacherPromises = teachers.map(t => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', t.id)));
-      const lessonPromises = lessons.map(l => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id)));
-      await Promise.all([...teacherPromises, ...lessonPromises]);
-      setShowDeleteAllTeachersModal(false);
-      setSelectedTeacher('');
-      showMessage('success', '🗑️ 已刪除所有教師及相關排課紀錄');
     } catch (e) {
       showMessage('error', '❌ 刪除失敗：' + e.message);
     }
@@ -468,15 +428,7 @@ export default function App() {
     const [targetDate, setTargetDate] = useState(editReq ? editReq.targetDate : new Date().toISOString().split('T')[0]); 
     const targetClass = classes.find(c => c.id === lesson.classId) || { name: lesson.classId };
 
-    const requesterTeacherObj = teachers.find(t => t.id === loggedTeacherId);
     const allOtherTeachers = teachers.filter(t => t.id !== loggedTeacherId);
-
-    const prioritizedTeachers = useMemo(() => {
-      if (requestType !== 'sub') return allOtherTeachers;
-      const sameSubject = allOtherTeachers.filter(t => t.subject === requesterTeacherObj?.subject);
-      const otherTeachers = allOtherTeachers.filter(t => t.subject !== requesterTeacherObj?.subject);
-      return [...sameSubject, ...otherTeachers];
-    }, [allOtherTeachers, requestType, requesterTeacherObj]);
 
     const targetTeacherLessons = useMemo(() => {
       if (!targetTeacher) return [];
@@ -490,7 +442,7 @@ export default function App() {
       
       try {
         if (editReq) {
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', editReq.id), {
+          await updateDoc(doc(db, 'requests', editReq.id), {
             type: requestType,
             targetTeacherId: targetTeacher,
             targetLessonId: requestType === 'swap' ? targetLessonId : null,
@@ -515,7 +467,7 @@ export default function App() {
             timestamp: new Date().toISOString(),
             reason: reason
           };
-          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', reqId), newReq);
+          await setDoc(doc(db, 'requests', reqId), newReq);
           onClose();
           showMessage('success', '📝 申請已送出，等待教務處審核！');
         }
@@ -555,13 +507,11 @@ export default function App() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">選擇代課老師 (已優先排列同科目)</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">選擇代課老師</label>
                   <select value={targetTeacher} onChange={e => setTargetTeacher(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm bg-white font-medium focus:ring-blue-500">
                     <option value="">-- 請選擇代課老師 --</option>
-                    {prioritizedTeachers.map(t => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} ({t.subject}) {t.subject === requesterTeacherObj?.subject ? ' ⭐[同科目]' : ''}
-                      </option>
+                    {allOtherTeachers.map(t => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.subject})</option>
                     ))}
                   </select>
                 </div>
@@ -625,16 +575,9 @@ export default function App() {
       displayRequests = displayRequests.filter(r => r.requesterId === filterTeacherId || r.targetTeacherId === filterTeacherId);
     }
 
-    if (filterPrintClassId) {
-      displayRequests = displayRequests.filter(r => {
-        const lesson = lessons.find(l => l.id === r.lessonId);
-        return lesson && lesson.classId === filterPrintClassId;
-      });
-    }
-
     const handleAction = async (id, newStatus) => {
       try {
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id), { status: newStatus });
+        await updateDoc(doc(db, 'requests', id), { status: newStatus });
         showMessage('success', `✅ 申請狀態已更新`);
       } catch(e) {
         showMessage('error', '❌ 更新失敗：' + e.message);
@@ -648,7 +591,7 @@ export default function App() {
         return;
       }
       try {
-        const promises = pendingReqs.map(r => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', r.id), { status: 'approved' }));
+        const promises = pendingReqs.map(r => updateDoc(doc(db, 'requests', r.id), { status: 'approved' }));
         await Promise.all(promises);
         showMessage('success', `✅ 已成功批次核准 ${teachers.find(t=>t.id===teacherId)?.name} 老師的所有申請！`);
       } catch(e) {
@@ -658,7 +601,7 @@ export default function App() {
 
     const handleDeleteRequest = async (id) => {
       try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id));
+        await deleteDoc(doc(db, 'requests', id));
         showMessage('success', '🗑️ 申請紀錄已刪除');
       } catch(e) {
         showMessage('error', '❌ 刪除失敗：' + e.message);
@@ -666,16 +609,13 @@ export default function App() {
     };
 
     const selectedTeacherObj = teachers.find(t => t.id === filterTeacherId);
-    const selectedPrintClassObj = classes.find(c => c.id === filterPrintClassId);
     const pendingCount = filterTeacherId ? requests.filter(r => r.requesterId === filterTeacherId && r.status === 'pending').length : 0;
 
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="hidden print:block text-center py-6 border-b-2 border-black mb-4">
           <h1 className="text-2xl font-bold">嘉義縣立嘉新國民中學 調代課審核總表</h1>
-          {selectedPrintClassObj ? (
-            <h2 className="text-lg font-bold mt-2">班級：{selectedPrintClassObj.name} 專屬調代課通知表</h2>
-          ) : selectedTeacherObj ? (
+          {selectedTeacherObj ? (
             <h2 className="text-lg font-bold mt-2">教師：{selectedTeacherObj.name} ({selectedTeacherObj.subject})</h2>
           ) : (
             <h2 className="text-lg font-bold mt-2">全校總表</h2>
@@ -689,19 +629,10 @@ export default function App() {
               <FileText className="w-5 h-5 text-blue-600"/> 
               {userRole === 'admin' ? '全校調代課審核與紀錄中心' : '我的調代課申請紀錄'}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">可透過下方篩選檢視特定教師或班級之申請，並進行列印或寄送</p>
+            <p className="text-xs text-slate-500 mt-0.5">可透過下方篩選檢視特定教師之申請，並進行批次核准或寄送總表</p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <select 
-               value={filterPrintClassId} 
-               onChange={(e) => setFilterPrintClassId(e.target.value)} 
-               className="bg-white border border-gray-300 text-sm rounded-lg px-3 py-2 focus:ring-blue-500 font-medium shadow-xs"
-            >
-               <option value="">-- 全部班級 (列印篩選) --</option>
-               {classes.map(c => <option key={c.id} value={c.id}>列印班級：{c.name}</option>)}
-            </select>
-
             <select 
                value={filterTeacherId} 
                onChange={(e) => setFilterTeacherId(e.target.value)} 
@@ -746,7 +677,7 @@ export default function App() {
         
         <div className="overflow-x-auto p-4">
           {displayRequests.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 font-medium">目前沒有符合條件的申請紀錄。</div>
+            <div className="text-center py-12 text-slate-400 font-medium">目前沒有任何申請紀錄。</div>
           ) : (
             <table className="w-full text-sm text-left border-collapse">
               <thead>
@@ -891,25 +822,16 @@ export default function App() {
                             {viewMode === 'class' ? (
                               <>
                                 <div className="font-bold text-blue-900 text-sm mb-1">{lesson.subject}</div>
-                                <button onClick={(e) => { e.stopPropagation(); jumpToTeacher(lesson.teacherId); }} className="text-xs bg-white text-blue-700 px-2 py-0.5 rounded shadow-xs hover:bg-blue-600 hover:text-white transition flex items-center gap-1">
+                                <button onClick={() => jumpToTeacher(lesson.teacherId)} className="text-xs bg-white text-blue-700 px-2 py-0.5 rounded shadow-xs hover:bg-blue-600 hover:text-white transition flex items-center gap-1">
                                   <User className="w-3 h-3" /> {teacherName}
                                 </button>
                               </>
                             ) : (
                               <>
-                                <button 
-                                  onClick={(e) => { 
-                                    e.stopPropagation(); 
-                                    jumpToClass(lesson.classId); 
-                                  }} 
-                                  className="font-bold text-blue-900 text-sm mb-1 hover:underline hover:text-blue-700 cursor-pointer"
-                                  title="點擊跳轉至該班級課表"
-                                >
-                                  {className}
-                                </button>
+                                <div className="font-bold text-blue-900 text-sm mb-1">{className}</div>
                                 <div className="text-xs text-blue-700">{lesson.subject}</div>
                                 {isMyOwnSchedule && (
-                                  <div className="absolute inset-0 bg-indigo-600/90 text-white rounded-xl opacity-0 group-hover:opacity-100 flex items-center justify-center font-bold text-xs transition-opacity pointer-events-none">
+                                  <div className="absolute inset-0 bg-indigo-600/90 text-white rounded-xl opacity-0 group-hover:opacity-100 flex items-center justify-center font-bold text-xs transition-opacity">
                                     ✨ 點擊申請調代
                                   </div>
                                 )}
@@ -1034,14 +956,9 @@ export default function App() {
                             <Plus className="w-4 h-4"/> 新增
                           </button>
                           {classes.length > 0 && (
-                            <>
-                              <button onClick={() => { setClassToDelete(selectedClass); setShowDeleteClassModal(true); }} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-bold flex items-center gap-1">
-                                <Trash2 className="w-4 h-4"/> 刪除
-                              </button>
-                              <button onClick={() => setShowDeleteAllClassesModal(true)} className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-bold flex items-center gap-1">
-                                <Trash2 className="w-4 h-4"/> 刪除全部
-                              </button>
-                            </>
+                            <button onClick={() => { setClassToDelete(selectedClass); setShowDeleteClassModal(true); }} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-bold flex items-center gap-1">
+                              <Trash2 className="w-4 h-4"/> 刪除
+                            </button>
                           )}
                         </div>
                       )}
@@ -1063,14 +980,9 @@ export default function App() {
                             <Plus className="w-4 h-4"/> 新增
                           </button>
                           {teachers.length > 0 && (
-                            <>
-                              <button onClick={() => { setTeacherToDelete(selectedTeacher); setShowDeleteTeacherModal(true); }} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-bold flex items-center gap-1">
-                                <Trash2 className="w-4 h-4"/> 刪除
-                              </button>
-                              <button onClick={() => setShowDeleteAllTeachersModal(true)} className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-bold flex items-center gap-1">
-                                <Trash2 className="w-4 h-4"/> 刪除全部
-                              </button>
-                            </>
+                            <button onClick={() => { setTeacherToDelete(selectedTeacher); setShowDeleteTeacherModal(true); }} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-bold flex items-center gap-1">
+                              <Trash2 className="w-4 h-4"/> 刪除
+                            </button>
                           )}
                         </div>
                       )}
@@ -1170,7 +1082,7 @@ export default function App() {
                   {teachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.subject})</option>)}
                 </select>
                 <div className="flex gap-2">
-                  <input type="password" value={teacherPassword} onChange={e=>setTeacherPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleTeacherLogin()} placeholder="請輸入密碼" className="flex-1 border border-gray-300 rounded-lg p-2 text-sm focus:ring-blue-500" />
+                  <input type="password" value={teacherPassword} onChange={e=>setTeacherPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleTeacherLogin()} placeholder="請輸入密碼 (預設1234)" className="flex-1 border border-gray-300 rounded-lg p-2 text-sm focus:ring-blue-500" />
                   <button onClick={handleTeacherLogin} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-sm">登入</button>
                 </div>
               </div>
@@ -1259,19 +1171,6 @@ export default function App() {
         </div>
       )}
 
-      {showDeleteAllClassesModal && userRole === 'admin' && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 border-t-4 border-red-600">
-            <h3 className="text-lg font-bold text-red-600 mb-2">危險：刪除所有班級？</h3>
-            <p className="text-gray-600 text-sm mb-6">您即將刪除雲端資料庫中所有的班級及相關課表資料！此操作無法復原。</p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowDeleteAllClassesModal(false)} className="px-4 py-2 border rounded-lg text-sm font-semibold">取消</button>
-              <button onClick={executeDeleteAllClasses} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700">確認全部刪除</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showAddTeacherModal && userRole === 'admin' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
@@ -1302,19 +1201,6 @@ export default function App() {
             <div className="flex justify-end gap-2">
               <button onClick={() => {setShowDeleteTeacherModal(false); setTeacherToDelete(null);}} className="px-4 py-2 border rounded-lg text-sm font-semibold">取消</button>
               <button onClick={executeDeleteTeacher} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700">確認刪除</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDeleteAllTeachersModal && userRole === 'admin' && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 border-t-4 border-red-600">
-            <h3 className="text-lg font-bold text-red-600 mb-2">危險：刪除所有教師？</h3>
-            <p className="text-gray-600 text-sm mb-6">您即將刪除雲端資料庫中所有的教師資料及相關課表！此操作無法復原。</p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowDeleteAllTeachersModal(false)} className="px-4 py-2 border rounded-lg text-sm font-semibold">取消</button>
-              <button onClick={executeDeleteAllTeachers} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700">確認全部刪除</button>
             </div>
           </div>
         </div>
@@ -1377,7 +1263,7 @@ export default function App() {
 
                     const day = parseInt(dStr);
                     const period = isNaN(parseInt(pStr)) ? pStr : parseInt(pStr);
-                    const lessonId = `IMP_${cId}_${day}_${period}`;
+                    const lessonId = `IMP_${Date.now()}_${i}`;
                     
                     parsedLessons.push({
                       id: lessonId,
@@ -1392,9 +1278,9 @@ export default function App() {
                   if (parsedLessons.length > 0) {
                      try {
                         const promises = [];
-                        parsedLessons.forEach(l => promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id), l)));
-                        newClassesMap.forEach(c => promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', c.id), c)));
-                        newTeachersMap.forEach(t => promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', t.id), t)));
+                        parsedLessons.forEach(l => promises.push(setDoc(doc(db, 'lessons', l.id), l)));
+                        newClassesMap.forEach(c => promises.push(setDoc(doc(db, 'classes', c.id), c)));
+                        newTeachersMap.forEach(t => promises.push(setDoc(doc(db, 'teachers', t.id), t)));
                         
                         await Promise.all(promises);
                         setShowImportModal(false);
@@ -1420,4 +1306,3 @@ export default function App() {
     </div>
   );
 }
-
